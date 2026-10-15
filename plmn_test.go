@@ -22,6 +22,16 @@ func TestPLMNIdentityDigits(t *testing.T) {
 				want = identity.ErrPLMNIdentityDigits
 			}
 			err := identity.ValidatePLMNIdentity(raw)
+			context, _ := referencePLMNError(raw)
+			assertError(t, err, want, context)
+			decoded, decodeErr := identity.DecodePLMN(raw)
+			assertError(t, decodeErr, want, context)
+			if want != nil && decoded != (identity.PLMN{}) {
+				t.Fatal("partial output")
+			}
+			if want != nil && !strings.HasPrefix(err.Error(), identity.ErrPLMNIdentityDigits.Error()+": ") {
+				t.Fatalf("sentinel must come first: %v", err)
+			}
 			if !errors.Is(err, want) {
 				t.Fatalf("nibble %d=%x: got %v, want %v", pos, digit, err, want)
 			}
@@ -50,13 +60,14 @@ func TestPLMNIdentityLength(t *testing.T) {
 		if n != 3 {
 			want = identity.ErrPLMNIdentityLength
 		}
-		if err := identity.ValidatePLMNIdentity(raw); !errors.Is(err, want) {
-			t.Errorf("length %d: got %v, want %v", n, err, want)
+		assertError(t, identity.ValidatePLMNIdentity(raw), want, fmt.Sprintf(" (got %d octets)", n))
+		decoded, err := identity.DecodePLMN(raw)
+		assertError(t, err, want, fmt.Sprintf(" (got %d octets)", n))
+		if want != nil && decoded != (identity.PLMN{}) {
+			t.Fatal("partial output")
 		}
 	}
-	if err := identity.ValidatePLMNIdentity(nil); !errors.Is(err, identity.ErrPLMNIdentityLength) {
-		t.Errorf("nil: %v", err)
-	}
+	assertError(t, identity.ValidatePLMNIdentity(nil), identity.ErrPLMNIdentityLength, " (got 0 octets)")
 }
 
 func TestPLMNIdentityErrorOrder(t *testing.T) {
@@ -76,8 +87,12 @@ func TestPLMNIdentityErrorOrder(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%x", tc.raw), func(t *testing.T) {
 			err := identity.ValidatePLMNIdentity(tc.raw)
-			if !errors.Is(err, tc.want) || !strings.Contains(err.Error(), tc.context) {
-				t.Fatalf("got %v, want %v with %q", err, tc.want, tc.context)
+			context, _ := referencePLMNError(tc.raw)
+			assertError(t, err, tc.want, context)
+			_, err = identity.DecodePLMN(tc.raw)
+			assertError(t, err, tc.want, context)
+			if !strings.Contains(err.Error(), tc.context) {
+				t.Fatalf("missing %s in %v", tc.context, err)
 			}
 		})
 	}

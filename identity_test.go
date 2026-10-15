@@ -29,9 +29,8 @@ func TestIdentityLengths(t *testing.T) {
 				} else if n < tc.min || n > tc.max {
 					want = tc.length
 				}
-				if err := tc.validate(digits); !errors.Is(err, want) {
-					t.Errorf("length %d: got %v, want %v", n, err, want)
-				}
+				context, _ := referenceDigits(digits, tc.min, tc.max, tc.length)
+				assertError(t, tc.validate(digits), want, context)
 			}
 		})
 	}
@@ -66,9 +65,8 @@ func TestIdentityDecimalDigits(t *testing.T) {
 				}
 			}
 			for _, input := range []string{"*", "#", "abc", "１２３４５６", "١٢٣٤٥٦", "12345678901234567890x", "1 2", "\x00", "/:", "a#"} {
-				if err := tc.validate(input); !errors.Is(err, identity.ErrNotDigits) {
-					t.Errorf("%q: got %v, want ErrNotDigits before length", input, err)
-				}
+				context, _ := referenceDigits(input, 0, 100, nil)
+				assertError(t, tc.validate(input), identity.ErrNotDigits, context)
 			}
 		})
 	}
@@ -95,9 +93,8 @@ func TestIMSIExamples(t *testing.T) {
 		{"", identity.ErrEmpty},
 	} {
 		t.Run(tc.digits, func(t *testing.T) {
-			if err := identity.ValidateIMSI(tc.digits); !errors.Is(err, tc.want) {
-				t.Fatalf("got %v, want %v", err, tc.want)
-			}
+			context, _ := referenceDigits(tc.digits, 6, 15, identity.ErrIMSILength)
+			assertError(t, identity.ValidateIMSI(tc.digits), tc.want, context)
 		})
 	}
 }
@@ -112,9 +109,7 @@ func TestIMEISpareDigit(t *testing.T) {
 		if digit != '0' {
 			want = identity.ErrIMEISpareDigitNotZero
 		}
-		if err := identity.ValidateIMEISpareDigit(digits); !errors.Is(err, want) {
-			t.Errorf("ValidateIMEISpareDigit(%q): got %v, want %v", digits, err, want)
-		}
+		assertError(t, identity.ValidateIMEISpareDigit(digits), want, fmt.Sprintf("(got %q)", digit))
 	}
 	for _, tc := range []struct {
 		digits string
@@ -129,9 +124,8 @@ func TestIMEISpareDigit(t *testing.T) {
 		{"4901542032375a1", identity.ErrNotDigits},
 		{"a", identity.ErrNotDigits},
 	} {
-		if err := identity.ValidateIMEISpareDigit(tc.digits); !errors.Is(err, tc.want) {
-			t.Errorf("%q: got %v, want %v", tc.digits, err, tc.want)
-		}
+		context, _ := referenceDigits(tc.digits, 15, 15, identity.ErrIMEILength)
+		assertError(t, identity.ValidateIMEISpareDigit(tc.digits), tc.want, context)
 	}
 }
 
@@ -148,6 +142,8 @@ func TestErrorDescriptions(t *testing.T) {
 		identity.ErrEmpty, identity.ErrNotDigits, identity.ErrIMSILength,
 		identity.ErrIMEILength, identity.ErrIMEISVLength, identity.ErrIMEISpareDigitNotZero,
 		identity.ErrPLMNIdentityDigits, identity.ErrPLMNIdentityLength,
+		identity.ErrMCCLength, identity.ErrMNCLength, identity.ErrTACSNRLength,
+		identity.ErrIMEICheckDigit, identity.ErrIMEISVReservedSVN,
 	} {
 		if !strings.HasPrefix(err.Error(), "identity: ") || !strings.Contains(err.Error(), "§") {
 			t.Errorf("missing package prefix or clause: %v", err)
@@ -157,17 +153,16 @@ func TestErrorDescriptions(t *testing.T) {
 
 func TestIdentityErrorContext(t *testing.T) {
 	for _, tc := range []struct {
-		err  error
-		want string
+		err      error
+		sentinel error
+		want     string
 	}{
-		{identity.ValidateIMSI("12a#"), `: 'a' at index 2`},
-		{identity.ValidateIMSI("12345"), "(got 5 digits)"},
-		{identity.ValidateIMEI("1234567890123456"), "(got 16 digits)"},
-		{identity.ValidateIMEISV("123456789012345"), "(got 15 digits)"},
-		{identity.ValidateIMEISpareDigit("490154203237518"), "(got '8')"},
+		{identity.ValidateIMSI("12a#"), identity.ErrNotDigits, `: 'a' at index 2`},
+		{identity.ValidateIMSI("12345"), identity.ErrIMSILength, "(got 5 digits)"},
+		{identity.ValidateIMEI("1234567890123456"), identity.ErrIMEILength, "(got 16 digits)"},
+		{identity.ValidateIMEISV("123456789012345"), identity.ErrIMEISVLength, "(got 15 digits)"},
+		{identity.ValidateIMEISpareDigit("490154203237518"), identity.ErrIMEISpareDigitNotZero, "(got '8')"},
 	} {
-		if tc.err == nil || !strings.HasSuffix(tc.err.Error(), tc.want) {
-			t.Errorf("got %v, want suffix %q", tc.err, tc.want)
-		}
+		assertError(t, tc.err, tc.sentinel, tc.want)
 	}
 }
